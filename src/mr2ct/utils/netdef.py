@@ -1,11 +1,11 @@
-from typing import Any, Optional, Sequence, Tuple, Union
+from typing import Sequence, Tuple, Union
+
 import torch.nn as nn
-from monai.utils import ensure_tuple_rep
-from monai.networks.nets import UNet
 from monai.networks.blocks import Convolution, ResidualUnit, SubpixelUpsample
-from monai.networks.layers import Act, Conv, Norm
+from monai.networks.layers import Act, Norm
 from monai.networks.layers.simplelayers import SkipConnection
-from monai.networks.layers.convutils import same_padding
+from monai.networks.nets import UNet
+
 
 # define Shuffle UNet
 class ShuffleUNet(UNet):
@@ -31,10 +31,21 @@ class ShuffleUNet(UNet):
             out_channels,
             channels,
             strides,
+            kernel_size=kernel_size,
+            up_kernel_size=up_kernel_size,
+            num_res_units=num_res_units,
+            act=act,
+            norm=norm,
+            dropout=dropout,
+            bias=bias,
         )
 
         def _create_block(
-            inc: int, outc: int, channels: Sequence[int], strides: Sequence[int], is_top: bool
+            inc: int,
+            outc: int,
+            channels: Sequence[int],
+            strides: Sequence[int],
+            is_top: bool,
         ) -> nn.Sequential:
             """
             Builds the UNet structure from the bottom up by recursing down to the bottom block, then creating sequential
@@ -52,23 +63,31 @@ class ShuffleUNet(UNet):
             subblock: nn.Module
 
             if len(channels) > 2:
-                subblock = _create_block(c, c, channels[1:], strides[1:], False)  # continue recursion down
+                subblock = _create_block(
+                    c, c, channels[1:], strides[1:], False
+                )  # continue recursion down
                 upc = c * 2
             else:
                 # the next layer is the bottom so stop recursion, create the bottom layer as the sublock for this layer
                 subblock = self._get_bottom_layer(c, channels[1])
                 upc = c + channels[1]
 
-            down = self._get_down_layer(inc, c, s, is_top)  # create layer in downsampling path
-            up = self._get_up_layer(upc, outc, s, is_top)  # create layer in upsampling path
+            down = self._get_down_layer(
+                inc, c, s, is_top
+            )  # create layer in downsampling path
+            up = self._get_up_layer(
+                upc, outc, s, is_top
+            )  # create layer in upsampling path
 
             return nn.Sequential(down, SkipConnection(subblock), up)
 
-        self.model = _create_block(in_channels, out_channels, self.channels, self.strides, True)
+        self.model = _create_block(
+            in_channels, out_channels, self.channels, self.strides, True
+        )
 
-
-    def _get_up_layer(self, in_channels: int, out_channels: int, strides: int, is_top: bool) -> nn.Module:
-
+    def _get_up_layer(
+        self, in_channels: int, out_channels: int, strides: int, is_top: bool
+    ) -> nn.Module:
         """
         Args:
             in_channels: number of input channels.
@@ -79,7 +98,7 @@ class ShuffleUNet(UNet):
         decode = nn.Sequential()
         shuffle = SubpixelUpsample(self.dimensions, in_channels, out_channels, strides)
 
-        conv = Convolution(
+        conv: nn.Module = Convolution(
             self.dimensions,
             out_channels,
             out_channels,
@@ -108,7 +127,7 @@ class ShuffleUNet(UNet):
             )
             conv = nn.Sequential(conv, ru)
 
-        decode.add_module('shuffle', shuffle)
-        decode.add_module('conv',conv)
+        decode.add_module("shuffle", shuffle)
+        decode.add_module("conv", conv)
 
         return decode
